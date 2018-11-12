@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension version="3.0" type="plugin" group="system" method="upgrade">
+	<name>System - RSForm! Idpay</name>
+	<title>RSForm! Idpay</title>
+	<author>Trangell</author>
+	<creationDate>Aug 2017</creationDate>
+	<copyright>Copyright 2017 Trangell Team</copyright>
+	<license>http://www.gnu.org/licenses/old-licenses/gpl-2.0.html GNU/GPL version 2</license>
+	<authorEmail>info@trangell.com</authorEmail>
+	<authorUrl>http://trangell.com</authorUrl>
+	<version>0.0.1</version>
+	<description>پلاگین پرداخت اراس فرم برای idpay</description>
+	<scriptfile>script.php</scriptfile>
+	<install>
+		<sql>
+			<file driver="mysql" charset="utf8">sql/mysql/install.sql</file>
+		</sql>
+	</install>
+	<files>
+		<folder>sql</folder>
+		<filename plugin="rsfpidpay">rsfpidpay.php</filename>
+	</files>
+</extension>
+
