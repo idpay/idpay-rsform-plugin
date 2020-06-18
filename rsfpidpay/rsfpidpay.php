@@ -13,6 +13,8 @@
  */
 defined('_JEXEC') or die('Restricted access');
 
+use Joomla\CMS\Http\Http;
+use Joomla\CMS\Http\HttpFactory;
 class plgSystemRSFPIdpay extends JPlugin
 {
 
@@ -21,19 +23,33 @@ class plgSystemRSFPIdpay extends JPlugin
     var $componentValue = 'idpay';
 
 
-    public function __construct(&$subject, $config)
+    public function __construct(&$subject, $config, Http $http = null)
     {
+        $this->http = $http ?: HttpFactory::getHttp();
         parent::__construct($subject, $config);
         $this->newComponents = array(3543);
+    }
+
+
+    /**
+     * @param $api_key
+     * @param $sandbox
+     * @return array
+     */
+    public function options($api_key,$sandbox)
+    {
+        $options = array('Content-Type' => 'application/json',
+            'X-API-KEY' => $api_key,
+            'X-SANDBOX' => $sandbox,
+        );
+        return $options;
     }
 
     function rsfp_bk_onAfterShowComponents()
     {
         $lang = JFactory::getLanguage();
         $lang->load('plg_system_rsfpidpay');
-        $db = JFactory::getDBO();
         $formId = JRequest::getInt('formId');
-
         $link = "displayTemplate('" . $this->componentId . "')";
         if ($components = RSFormProHelper::componentExists($formId, $this->componentId))
             $link = "displayTemplate('" . $this->componentId . "', '" . $components[0] . "')";
@@ -81,6 +97,8 @@ class plgSystemRSFPIdpay extends JPlugin
 
     function rsfp_doPayment($payValue, $formId, $SubmissionId, $price, $products, $code)
     {
+
+
         $components = RSFormProHelper::componentExists($formId, $this->componentId);
         $data = RSFormProHelper::getComponentProperties($components[0]);
         $app = JFactory::getApplication();
@@ -99,7 +117,6 @@ class plgSystemRSFPIdpay extends JPlugin
 
         if (is_array($price))
             $price = (int)array_sum($price);
-
 
         if (!$price) {
             $msg = 'مبلغی وارد نشده است';
@@ -133,25 +150,22 @@ class plgSystemRSFPIdpay extends JPlugin
             }
 
             $data = array('order_id' => $formId, 'amount' => $amount, 'phone' => '', 'mail' => '', 'desc' => $desc, 'callback' => $callback,);
+            $url='https://api.idpay.ir/v1.1/payment';
+            $options = $this->options($api_key,$sandbox);
+            $result = $this->http->post($url, json_encode($data, true), $options);
+            $http_status = $result->code;
+            $result = json_decode($result->body);
 
-            $ch = curl_init('https://api.idpay.ir/v1.1/payment');
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-                'Content-Type: application/json',
-                'X-API-KEY:' . $api_key,
-                'X-SANDBOX:' . $sandbox,
-            ));
+            //save idpay_id in db
+            $db = JFactory::getDBO();
+            $sql = 'INSERT INTO `m2q4w_rsform_submission_values` (FormId, SubmissionId, FieldName,FieldValue) VALUES (' . $formId . ',' . $SubmissionId . ',"idpay_id","' . $result->id . '")';
+            $db->setQuery($sql);
+            $db->execute();
 
-            $result = curl_exec($ch);
-            $result = json_decode($result);
-            $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
 
             if ($http_status != 201 || empty($result) || empty($result->id) || empty($result->link)) {
                 $msg = 'خطا هنگام ایجاد تراکنش. وضعیت خطا:' . $http_status . "<br>" . 'کد خطا: ' . $result->error_code . ' پیغام خطا ' . $result->error_message;
                 $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                $db = JFactory::getDBO();
                 $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($result->status));
                 $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
             }
@@ -179,12 +193,9 @@ class plgSystemRSFPIdpay extends JPlugin
             $track_id = $_POST['track_id'];
             $formId = $_POST['order_id'];
             $code = $jinput->get->get('code', '', 'STRING');
-
-
             $db = JFactory::getDBO();
             $db->setQuery("SELECT SubmissionId FROM #__rsform_submissions s WHERE s.FormId='" . $formId . "' AND MD5(CONCAT(s.SubmissionId,s.DateSubmitted)) = '" . $db->escape($code) . "'");
             $SubmissionId = $db->loadResult();
-
             $components = RSFormProHelper::componentExists($formId, $this->componentId);
             $data = RSFormProHelper::getComponentProperties($components[0]);
             $price = round($this::getPayerPrice($formId, $SubmissionId, $data['FIELDNAME']), 0);
@@ -210,21 +221,11 @@ class plgSystemRSFPIdpay extends JPlugin
 
                     $data = array('id' => $pid, 'order_id' => $order_id,);
 
-                    $ch = curl_init();
-                    curl_setopt($ch, CURLOPT_URL, 'https://api.idpay.ir/v1.1/payment/verify');
-                    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-                    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-                        'Content-Type: application/json',
-                        'X-API-KEY:' . $api_key,
-                        'X-SANDBOX:' . $sandbox,
-                    ));
-
-                    $result = curl_exec($ch);
-                    $result = json_decode($result);
-                    $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                    curl_close($ch);
-
+                    $url='https://api.idpay.ir/v1.1/payment/verify';
+                    $options = $this->options($api_key,$sandbox);
+                    $result = $this->http->post($url, json_encode($data, true), $options);
+                    $http_status = $result->code;
+                    $result = json_decode($result->body);
 
                     //http error
                     if ($http_status != 200) {
@@ -253,14 +254,23 @@ class plgSystemRSFPIdpay extends JPlugin
                         //successful verify
                     } else {
 
-                        //check Double pricing
-                        if ($verify_order_id !== $order_id) {
+
+                        //check double spending
+                        $db = JFactory::getDBO();
+                        $sql = 'SElECT FieldValue FROM ' . "#__rsform_submission_values" . '  WHERE FieldName="idpay_id" AND FormId=' . 2 . ' AND SubmissionId = ' . $SubmissionId;
+                        $db->setQuery($sql);
+                        $db->execute();
+                        $exist = $db->loadObjectList();
+                        $exist = count($exist);
+
+                        if ($verify_order_id !== $order_id and !$exist) {
                             $msg = $this->idpay_get_failed_message($verify_track_id, $order_id, 0);
                             $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages(0));
                             $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
                             $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
-
                         }
+
+
 
                         $mainframe = JFactory::getApplication();
                         $mainframe->triggerEvent('rsfp_afterConfirmPayment', array($SubmissionId));
@@ -278,9 +288,7 @@ class plgSystemRSFPIdpay extends JPlugin
                     $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($status));
                     $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
                     $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
-
                 }
-
 
             } else {
 
