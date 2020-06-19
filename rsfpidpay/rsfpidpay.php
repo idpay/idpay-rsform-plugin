@@ -158,7 +158,7 @@ class plgSystemRSFPIdpay extends JPlugin
 
             //save idpay_id in db
             $db = JFactory::getDBO();
-            $sql = 'INSERT INTO `m2q4w_rsform_submission_values` (FormId, SubmissionId, FieldName,FieldValue) VALUES (' . $formId . ',' . $SubmissionId . ',"idpay_id","' . $result->id . '")';
+            $sql = 'INSERT INTO `#__rsform_submission_values` (FormId, SubmissionId, FieldName,FieldValue) VALUES (' . $formId . ',' . $SubmissionId . ',"idpay_id","' . $result->id . '")';
             $db->setQuery($sql);
             $db->execute();
 
@@ -198,7 +198,22 @@ class plgSystemRSFPIdpay extends JPlugin
             $SubmissionId = $db->loadResult();
             $components = RSFormProHelper::componentExists($formId, $this->componentId);
             $data = RSFormProHelper::getComponentProperties($components[0]);
-            $price = round($this::getPayerPrice($formId, $SubmissionId, $data['FIELDNAME']), 0);
+
+
+
+            $components = RSFormProHelper::componentExists($formId, $this->componentId);
+            $data = RSFormProHelper::getComponentProperties($components[0]);
+            $app = JFactory::getApplication();
+
+
+            if ($data['TOTAL'] == 'YES') {
+                $fieldname="rsfp_Total";
+            } elseif ($data['TOTAL'] == 'NO') {
+                $fieldname=$data['FIELDNAME'];
+            }
+
+            $price = round($this::getPayerPrice($formId, $SubmissionId,$fieldname), 0);
+
             //convert to currency
             $currency = RSFormProHelper::getConfig('idpay.currency');
             $price = $this->rsfp_idpay_get_amount($price, $currency);
@@ -215,7 +230,6 @@ class plgSystemRSFPIdpay extends JPlugin
 
                 //in waiting confirm
                 if ($status == 10) {
-
                     $api_key = RSFormProHelper::getConfig('idpay.api');
                     $sandbox = RSFormProHelper::getConfig('idpay.sandbox') == 'no' ? 'false' : 'true';
 
@@ -226,6 +240,7 @@ class plgSystemRSFPIdpay extends JPlugin
                     $result = $this->http->post($url, json_encode($data, true), $options);
                     $http_status = $result->code;
                     $result = json_decode($result->body);
+
 
                     //http error
                     if ($http_status != 200) {
