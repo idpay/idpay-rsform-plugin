@@ -2,11 +2,11 @@
 /**
  * IDPay payment plugin
  *
- * @developer JMDMahdi
+ * @developer JMDMahdi, vispa, mnbp1371
  * @publisher IDPay
  * @package VirtueMart
  * @subpackage payment
- * @copyright (C) 2018 IDPay
+ * @copyright (C) 2020 IDPay
  * @license http://www.gnu.org/licenses/gpl-2.0.html GPLv2 or later
  *
  * http://idpay.ir
@@ -81,7 +81,7 @@ class plgSystemRSFPIdpay extends JPlugin
     {
 
         if ($args['ComponentTypeName'] == 'idpay') {
-            $args['out'] = '<td>&nbsp;d</td>';
+            $args['out'] = '<td>&nbsp;idpay</td>';
             $args['out'] .= '<td><img src=' . JURI::root(true) . '/plugins/system/rsfpidpay/assets/images/logo.png />' . $args['data']['LABEL'] . '</td>';
         }
     }
@@ -278,7 +278,7 @@ class plgSystemRSFPIdpay extends JPlugin
                         $exist = $db->loadObjectList();
                         $exist = count($exist);
 
-                        if ($verify_order_id !== $order_id and !$exist) {
+                        if ($verify_order_id !== $order_id or !$exist) {
                             $msg = $this->idpay_get_failed_message($verify_track_id, $order_id, 0);
                             $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages(0));
                             $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;

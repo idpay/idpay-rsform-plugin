@@ -3,12 +3,12 @@
 	<name>System - RSForm! Idpay</name>
 	<title>RSForm! Idpay</title>
 	<author>Trangell</author>
-	<creationDate>Aug 2017</creationDate>
-	<copyright>Copyright 2017 Trangell Team</copyright>
+	<creationDate>July 2020</creationDate>
+	<copyright>Copyright 2020 Trangell Team</copyright>
 	<license>http://www.gnu.org/licenses/old-licenses/gpl-2.0.html GNU/GPL version 2</license>
 	<authorEmail>info@trangell.com</authorEmail>
 	<authorUrl>http://trangell.com</authorUrl>
-	<version>0.0.1</version>
+	<version>1.0.0</version>
 	<description>پلاگین پرداخت اراس فرم برای idpay</description>
 	<scriptfile>script.php</scriptfile>
 	<install>
@@ -20,5 +20,8 @@
 		<folder>sql</folder>
 		<filename plugin="rsfpidpay">rsfpidpay.php</filename>
 	</files>
+	<updateservers>
+        <server type="extension" priority="1" name="System - IDPay for RSForm">https://static.idpay.ir/plugins/joomla/rsform-idpay-udpate.xml</server>
+    </updateservers>
 </extension>
 
