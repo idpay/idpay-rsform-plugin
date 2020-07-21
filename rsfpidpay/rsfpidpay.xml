@@ -21,7 +21,7 @@
 		<filename plugin="rsfpidpay">rsfpidpay.php</filename>
 	</files>
 	<updateservers>
-        <server type="extension" priority="1" name="System - IDPay for J2Store">https://static.idpay.ir/plugins/joomla/rsform-idpay-udpate.xml</server>
+        <server type="extension" priority="1" name="System - IDPay for RSForm">https://static.idpay.ir/plugins/joomla/rsform-idpay-udpate.xml</server>
     </updateservers>
 </extension>
 
