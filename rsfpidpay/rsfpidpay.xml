@@ -5,9 +5,9 @@
 	<author>mnbp1371</author>
 	<creationDate>August 2020</creationDate>
 	<copyright>Copyright 2020 IDPay</copyright>
-	<license>https://idpay.ir/</license>
+	<license>https://idpay.ir</license>
 	<authorEmail>mohammadnabipour1371@gmail.com</authorEmail>
-	<authorUrl>https://idpay.ir/</authorUrl>
+	<authorUrl>https://idpay.ir</authorUrl>
 	<version>1.0.0</version>
 	<description>پلاگین پرداخت اراس فرم برای idpay</description>
 	<scriptfile>script.php</scriptfile>
