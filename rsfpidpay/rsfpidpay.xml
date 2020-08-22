@@ -6,10 +6,10 @@
 	<creationDate>August 2020</creationDate>
 	<copyright>Copyright 2020 IDPay</copyright>
 	<license>http://www.gnu.org/licenses/gpl-2.0.html GPLv2 or later</license>
-	<authorEmail>mohammadnabipour1371@gmail.com</authorEmail>
+	<authorEmail>support@idpay.ir</authorEmail>
 	<authorUrl>https://idpay.ir</authorUrl>
 	<version>1.0.0</version>
-	<description>پلاگین پرداخت اراس فرم برای idpay</description>
+	<description>پلاگین پرداخت اراس فرم برای Idpay</description>
 	<scriptfile>script.php</scriptfile>
 	<install>
 		<sql>
