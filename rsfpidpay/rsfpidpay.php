@@ -165,7 +165,7 @@ class plgSystemRSFPIdpay extends JPlugin
       }
 
       $data = array('order_id' => $formId, 'amount' => $amount, 'phone' => '', 'mail' => '', 'desc' => $desc, 'callback' => $callback,);
-      $url='https://app.idpaydev.ir/v1.1/payment';
+      $url='https://api.idpay.ir/v1.1/payment';
       $options = $this->options($api_key,$sandbox);
       $result = $this->http->post($url, json_encode($data, true), $options);
       $http_status = $result->code;
@@ -246,7 +246,7 @@ class plgSystemRSFPIdpay extends JPlugin
           $api_key = RSFormProHelper::getConfig('idpay.api');
           $sandbox = RSFormProHelper::getConfig('idpay.sandbox') == 'no' ? 'false' : 'true';
           $data = array('id' => $pid, 'order_id' => $order_id,);
-          $url='https://app.idpaydev.ir/v1.1/payment/verify';
+          $url='https://api.idpay.ir/v1.1/payment/verify';
           $options = $this->options($api_key,$sandbox);
 
           // send request and get result
