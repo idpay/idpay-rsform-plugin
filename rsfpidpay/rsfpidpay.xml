@@ -18,6 +18,7 @@
 	</install>
 	<files>
 		<folder>sql</folder>
+		<folder>assets</folder>
 		<filename plugin="rsfpidpay">rsfpidpay.php</filename>
 	</files>
 	<updateservers>
