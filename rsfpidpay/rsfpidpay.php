@@ -15,6 +15,7 @@ defined('_JEXEC') or die('Restricted access');
 
 use Joomla\CMS\Http\Http;
 use Joomla\CMS\Http\HttpFactory;
+use Joomla\Event\Event;
 
 class plgSystemRSFPIdpay extends JPlugin
 {
@@ -38,10 +39,23 @@ class plgSystemRSFPIdpay extends JPlugin
         return $options;
     }
 
+    function isNotDoubleSpending($submission_id, $order_id, $trans_id)
+    {
+        $reference = JFactory::getContainer()->get('DatabaseDriver');
+        $sql = 'SElECT FieldValue AS IdpayTransaction FROM ' . "#__rsform_submission_values" . '  WHERE FieldName="IDPAY_TRANSACTION" AND FormId=' . $order_id . ' AND SubmissionId = ' . $submission_id;
+        $reference->setQuery($sql);
+        $reference->execute();
+        $data = $reference->loadObjectList();
+        if (count($data) == 1) {
+            return reset($data)->IdpayTransaction == $trans_id;
+        }
+        return false;
+    }
+
     function redirectTo(&$application, $url, $message, $messageType)
     {
         $application->enqueueMessage(JText::_($message), $messageType);
-        return $application->redirect(JRoute::_($url, false));
+        return $application->redirect(JRoute::_(JUri::base() . $url, false));
     }
 
     function onRsformBackendAfterShowComponents()
@@ -81,7 +95,7 @@ class plgSystemRSFPIdpay extends JPlugin
         }
     }
 
-    function onRsformDoPayment($payValue, $formId, $SubmissionId, $price, $products, $code)
+    function onRsformDoPayment($payValue, $formId, $SubmissionId, $price, $products, $code) //Payment Function
     {
         $app = JFactory::getApplication();
 
@@ -143,7 +157,7 @@ class plgSystemRSFPIdpay extends JPlugin
                 $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($result->status));
 
                 $msg = 'خطا هنگام ایجاد تراکنش. وضعیت خطا:' . $http_status . "<br>" .
-                       'کد خطا: ' . $result->error_code . ' پیغام خطا ' . $result->error_message;
+                    'کد خطا: ' . $result->error_code . ' پیغام خطا ' . $result->error_message;
                 $this->redirectTo($app, "index.php?option=com_rsform&formId={$formId}", $msg, 'Error');
             }
             //Save Transaction To DB
@@ -159,68 +173,53 @@ class plgSystemRSFPIdpay extends JPlugin
         }
     }
 
-    function onRsformFrontendSwitchTasks()
+    function onRsformFrontendSwitchTasks() //Callback Payment Function
     {
         $app = JFactory::getApplication();
         if ($app->input->getCmd('plugin_task') == 'idpay.notify') {
-            $jinput = $app->input;
-            //get status result of payment api
-            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-                $track_id = $_POST['track_id'];
-                $formId = $_POST['order_id'];
-                $pid = $_POST['id'];
-                $pOrderId = $_POST['order_id'];
-                $status = $_POST['status'];
-            } elseif ($_SERVER['REQUEST_METHOD'] === 'GET') {
-                $track_id = $_GET['track_id'];
-                $formId = $_GET['order_id'];
-                $pid = $_GET['id'];
-                $pOrderId = $_GET['order_id'];
-                $status = $_GET['status'];
-            }
 
-            $code = $jinput->get->get('code', '', 'STRING');
+            $track_id = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST['track_id'] : $_GET['track_id'];
+            $form_id = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST['order_id'] : $_GET['order_id'];
+            $trans_id = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST['id'] : $_GET['id'];
+            $status = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST['status'] : $_GET['status'];
+            $order_id = $form_id;
+            $code = $app->input->get->get('code', '', 'STRING');
+
+            // Fetch SubmissionId
             $db = JFactory::getContainer()->get('DatabaseDriver');
-            $db->setQuery("SELECT SubmissionId FROM #__rsform_submissions s WHERE s.FormId='" . $formId . "' AND MD5(CONCAT(s.SubmissionId,s.DateSubmitted)) = '" . $db->escape($code) . "'");
-            $SubmissionId = $db->loadResult();
-            $components = RSFormProHelper::componentExists($formId, $this->componentId);
+            $db->setQuery("SELECT SubmissionId FROM #__rsform_submissions s WHERE s.FormId='" . $form_id . "' AND MD5(CONCAT(s.SubmissionId,s.DateSubmitted)) = '" . $db->escape($code) . "'");
+            $submission_id = $db->loadResult();
+            $components = RSFormProHelper::componentExists($form_id, $this->componentId);
             $data = RSFormProHelper::getComponentProperties($components[0]);
 
-            if ($data['TOTAL'] == 'YES') {
-                $fieldname = "rsfp_Total";
-            } elseif ($data['TOTAL'] == 'NO') {
-                $fieldname = $data['FIELDNAME'];
-            }
-
-            $price = round($this::getPayerPrice($formId, $SubmissionId, $fieldname), 0);
+            $fieldName = $data['TOTAL'] == 'YES' ? "rsfp_Total" : ($data['TOTAL'] == 'NO' ? $data['FIELDNAME'] : null);
+            $price = $this::getPayerPrice($form_id, $submission_id, $fieldName);
 
             //convert to currency
             $currency = RSFormProHelper::getConfig('idpay.currency');
             $price = $this->idpayGetAmount($price, $currency);
 
-            $order_id = $formId;
-            if (!empty($pid) && !empty($pOrderId) && $pOrderId == $order_id) {
+            if (!empty($trans_id) && !empty($order_id) && !empty($track_id) && !empty($status)) {
 
-                //in waiting confirm
-                if ($status == 10) {
+                if ($status == 10 && $this->isNotDoubleSpending($submission_id, $order_id, $trans_id) == true) {
 
                     $api_key = RSFormProHelper::getConfig('idpay.api');
                     $sandbox = RSFormProHelper::getConfig('idpay.sandbox') == 'no' ? 'false' : 'true';
-                    $data = array('id' => $pid, 'order_id' => $order_id,);
+                    $data = array(
+                            'id' => $trans_id,
+                            'order_id' => $order_id)
+                    ;
                     $url = 'https://api.idpay.ir/v1.1/payment/verify';
                     $options = $this->options($api_key, $sandbox);
-
-                    // send request and get result
                     $result = $this->http->post($url, json_encode($data, true), $options);
                     $http_status = $result->code;
                     $result = json_decode($result->body);
 
-                    //http error
                     if ($http_status != 200) {
+                        $this->updateAfterEvent($form_id, $submission_id, $this->otherStatusMessages($status));
+
                         $msg = sprintf('خطا هنگام بررسی وضعیت تراکنش. وضعیت خطا: %s - کد خطا: %s - پیام خطا: %s', $http_status, $result->error_code, $result->error_message);
-                        $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($status));
-                        $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                        $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+                        $this->redirectTo($app, "index.php?option=com_rsform&formId={$form_id}", $msg, 'Error');
                     }
 
                     $verify_status = empty($result->status) ? NULL : $result->status;
@@ -230,60 +229,43 @@ class plgSystemRSFPIdpay extends JPlugin
                     $hashed_card_no = empty($result->payment->hashed_card_no) ? NULL : $result->payment->hashed_card_no;
                     $card_no = empty($result->payment->hashed_card_no) ? NULL : $result->payment->hashed_card_no;
 
-                    //failed verify
                     if (empty($verify_status) || empty($verify_track_id) || empty($verify_amount) || $verify_amount != $price || $verify_status < 100) {
-                        $msg = $this->idpayGetFailedMessage($verify_track_id, $order_id, $verify_status);
-                        $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($verify_status));
-                        $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                        $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+                        $this->updateAfterEvent($form_id, $submission_id, $this->otherStatusMessages($verify_status));
 
-                        //successful verify
+                        $msg = $this->idpayGetFailedMessage($verify_track_id, $order_id, $verify_status);
+                        $this->redirectTo($app, "index.php?option=com_rsform&formId={$form_id}", $msg, 'Error');
                     } else {
 
-                        //check double spending
-                        $db = JFactory::getContainer()->get('DatabaseDriver');
-                        $sql = 'SElECT FieldValue FROM ' . "#__rsform_submission_values" . '  WHERE FieldName="IDPAY_TRANSACTION" AND FormId=' . $formId . ' AND SubmissionId = ' . $SubmissionId;
-                        $db->setQuery($sql);
-                        $db->execute();
-                        $exist = $db->loadObjectList();
-                        var_dump($exist);
-                        $exist = count($exist);
+                        if ($verify_order_id !== $order_id) {
+                            $this->updateAfterEvent($form_id, $submission_id, $this->otherStatusMessages(0));
 
-                        if ($verify_order_id !== $order_id or !$exist) {
                             $msg = $this->idpayGetFailedMessage($verify_track_id, $order_id, 0);
-                            $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages(0));
-                            $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                            $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+                            $this->redirectTo($app, "index.php?option=com_rsform&formId={$form_id}", $msg, 'Error');
                         }
 
-                        $mainframe = JFactory::getApplication();
-                        $mainframe->triggerEvent('rsfp_afterConfirmPayment', array($SubmissionId));
-                        $msgForSaveDataTDataBase = $this->otherStatusMessages($verify_status) . "کد پیگیری :  $verify_track_id " . "شماره کارت :  $card_no " . "شماره کارت رمزنگاری شده : $hashed_card_no ";
-                        $this->updateAfterEvent($formId, $SubmissionId, $msgForSaveDataTDataBase);
-                        $msg = $this->idpayGetSuccessMessage($verify_track_id, $order_id, $verify_status);
+                        $dispatcher = Joomla\CMS\Factory::getApplication()->getDispatcher();
+                        $event = new Event('rsfp_afterConfirmPayment', array($submission_id));
+                        $res = $dispatcher->dispatch('onCheckAnswer', $event);
 
-                        $app->enqueueMessage(JText::_($msg), 'success');
-                        $app->redirect(JRoute::_("index.php?option=com_rsform&formId={$formId}", false));
+                        $msgForSaveDataTDataBase = $this->otherStatusMessages($verify_status) . PHP_EOL . "کد پیگیری :  $verify_track_id " . PHP_EOL . "شماره کارت :  $card_no ";
+                        $this->updateAfterEvent($form_id, $submission_id, $msgForSaveDataTDataBase);
 
-                        //  $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                        //  $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'success');
+                        $msg = $this->idpayGetSuccessMessage($verify_track_id, $order_id);
+                        $this->redirectTo($app, "index.php?option=com_rsform&formId={$form_id}", $msg, 'success');
                     }
 
                 } else {
-                    //save pay failed pay message(payment api)
+                    $this->updateAfterEvent($form_id, $submission_id, $this->otherStatusMessages($status));
+
                     $msg = $this->idpayGetFailedMessage($track_id, $order_id, $status);
-                    $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($status));
-                    $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                    $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+                    $this->redirectTo($app, "index.php?option=com_rsform&formId={$form_id}", $msg, 'Error');
                 }
 
             } else {
+                $this->updateAfterEvent($form_id, $submission_id, $this->otherStatusMessages($status));
 
                 $msg = $this->idpayGetFailedMessage($track_id, $order_id, $status);
-                $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($status));
-                $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
-
+                $this->redirectTo($app, "index.php?option=com_rsform&formId={$form_id}", $msg, 'Error');
             }
 
         } else {
@@ -367,7 +349,6 @@ class plgSystemRSFPIdpay extends JPlugin
 
     public function idpayGetFailedMessage($track_id, $order_id, $msgNumber = null)
     {
-        //get defult massege
         $failedMassage = RSFormProHelper::getConfig('idpay.failed_massage');
         $msg = $this->otherStatusMessages($msgNumber);
         return str_replace(["{track_id}", "{order_id}"], [$track_id, $order_id], $failedMassage) . "<br>" . "$msg";
@@ -375,7 +356,6 @@ class plgSystemRSFPIdpay extends JPlugin
 
     public function idpayGetSuccessMessage($track_id, $order_id)
     {
-        //get defult success massage
         $successMassage = RSFormProHelper::getConfig('idpay.success_massage');
         return str_replace(["{track_id}", "{order_id}"], [$track_id, $order_id], $successMassage);
     }
@@ -464,9 +444,7 @@ class plgSystemRSFPIdpay extends JPlugin
 
     public function updateAfterEvent($formId, $SubmissionId, $msg)
     {
-        if (!$SubmissionId) {
-            return false;
-        }
+        if (!$SubmissionId) return false;
         $db = JFactory::getContainer()->get('DatabaseDriver');
         $msg = "idpay: $msg";
         $db->setQuery("UPDATE #__rsform_submission_values sv SET sv.FieldValue=1 WHERE sv.FieldName='_STATUS' AND sv.FormId='" . $formId . "' AND sv.SubmissionId = '" . $SubmissionId . "'");
