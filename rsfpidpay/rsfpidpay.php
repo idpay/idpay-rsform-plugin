@@ -38,11 +38,18 @@ class plgSystemRSFPIdpay extends JPlugin
         return $options;
     }
 
+    function redirectTo(&$application, $url, $message, $messageType)
+    {
+        $application->enqueueMessage(JText::_($message), $messageType);
+        return $application->redirect(JRoute::_($url, false));
+    }
+
     function onRsformBackendAfterShowComponents()
     {
-        $lang = JFactory::getLanguage();
+        $app = JFactory::getApplication();
+        $lang = $app->getLanguage();
         $lang->load('plg_system_rsfpidpay');
-        $formId = JFactory::getApplication()->input->getInt('formId');
+        $formId = $app->input->getInt('formId');
         $link = "displayTemplate('" . $this->componentId . "')";
         if ($components = RSFormProHelper::componentExists($formId, $this->componentId))
             $link = "displayTemplate('" . $this->componentId . "', '" . $components[0] . "')";
@@ -62,7 +69,6 @@ class plgSystemRSFPIdpay extends JPlugin
             $item->value = $this->componentValue;
             $item->text = $data['LABEL'] . '(پرداخت امن با آی‌دی‌پی)';
 
-            //JURI::root(true).'/plugins/system/rsfpidpay/assets/images/logo.png
             $items[] = $item;
         }
     }
@@ -77,17 +83,20 @@ class plgSystemRSFPIdpay extends JPlugin
 
     function onRsformDoPayment($payValue, $formId, $SubmissionId, $price, $products, $code)
     {
-        $components = RSFormProHelper::componentExists($formId, $this->componentId);
-        $data = RSFormProHelper::getComponentProperties($components[0]);
         $app = JFactory::getApplication();
 
+        // Load IDPAY Component IN Form
+        $components = RSFormProHelper::componentExists($formId, $this->componentId);
+        // Get Attributes  IDPAY Component
+        $data = RSFormProHelper::getComponentProperties($components[0]);
+
+        // Calculate  Total Order Price
         if ($data['TOTAL'] == 'YES') {
             $price = (int)$_POST['form']['rsfp_Total'];
         } elseif ($data['TOTAL'] == 'NO') {
             if ($data['FIELDNAME'] == 'Select the desired field') {
                 $msg = 'فیلدی برای قیمت انتخاب نشده است.';
-                $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+                $this->redirectTo($app, "index.php?option=com_rsform&formId={$formId}", $msg, 'Error');
             }
             $price = $_POST['form'][$data['FIELDNAME']];
         }
@@ -97,58 +106,56 @@ class plgSystemRSFPIdpay extends JPlugin
 
         if (!$price) {
             $msg = 'مبلغی وارد نشده است';
-            $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-            $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+            $this->redirectTo($app, "index.php?option=com_rsform&formId={$formId}", $msg, 'Error');
         }
 
         $currency = RSFormProHelper::getConfig('idpay.currency');
         $price = $this->idpayGetAmount($price, $currency);
 
-        // execute only for our plugin
-        if ($payValue != $this->componentValue) return;
-        $tax = RSFormProHelper::getConfig('idpay.tax.value');
-        if ($tax)
-            $nPrice = round($tax, 0) + round($price, 0);
-        else
-            $nPrice = round($price, 0);
-
-        if ($nPrice > 100) {
+        if ($price > 1000) {
             $api_key = RSFormProHelper::getConfig('idpay.api');
             $sandbox = RSFormProHelper::getConfig('idpay.sandbox') == 'no' ? 'false' : 'true';
-            $amount = $nPrice;
+            $amount = $price;
             $desc = 'پرداخت سفارش شماره: ' . $formId;
-            $callback = JURI::root() . 'index.php?option=com_rsform&task=plugin&plugin_task=idpay.notify&code=' . $code;
+            $callback = JRoute::_(JUri::base() . "index.php?option=com_rsform&task=plugin&plugin_task=idpay.notify&code={$code}", false);
+            //$callback = JURI::root() . 'index.php?option=com_rsform&task=plugin&plugin_task=idpay.notify&code=' . $code;
+
             if (empty($amount)) {
                 $msg = 'واحد پول انتخاب شده پشتیبانی نمی شود.';
-                $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+                $this->redirectTo($app, "index.php?option=com_rsform&formId={$formId}", $msg, 'Error');
             }
-
-            $data = array('order_id' => $formId, 'amount' => $amount, 'phone' => '', 'mail' => '', 'desc' => $desc, 'callback' => $callback,);
+            $user = JFactory::getApplication()->getSession()->get('user');
+            $data = array(
+                'order_id' => $formId,
+                'amount' => $amount,
+                'phone' => '',
+                'mail' => $user->email,
+                'desc' => $desc,
+                'callback' => $callback
+            );
             $url = 'https://api.idpay.ir/v1.1/payment';
             $options = $this->options($api_key, $sandbox);
             $result = $this->http->post($url, json_encode($data, true), $options);
             $http_status = $result->code;
             $result = json_decode($result->body);
 
-            //save idpay_id in db
-            $db = JFactory::getDBO();
-            $sql = 'INSERT INTO `#__rsform_submission_values` (FormId, SubmissionId, FieldName,FieldValue) VALUES (' . $formId . ',' . $SubmissionId . ',"idpay_id","' . $result->id . '")';
+            if ($http_status != 201 || empty($result) || empty($result->id) || empty($result->link)) {
+                $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($result->status));
+
+                $msg = 'خطا هنگام ایجاد تراکنش. وضعیت خطا:' . $http_status . "<br>" .
+                       'کد خطا: ' . $result->error_code . ' پیغام خطا ' . $result->error_message;
+                $this->redirectTo($app, "index.php?option=com_rsform&formId={$formId}", $msg, 'Error');
+            }
+            //Save Transaction To DB
+            $db = JFactory::getContainer()->get('DatabaseDriver');
+            $sql = 'INSERT INTO `#__rsform_submission_values` (FormId, SubmissionId, FieldName,FieldValue) VALUES (' . $formId . ',' . $SubmissionId . ',"IDPAY_TRANSACTION","' . $result->id . '")';
             $db->setQuery($sql);
             $db->execute();
+            $app->redirect(JRoute::_($result->link, false));
 
-            if ($http_status != 201 || empty($result) || empty($result->id) || empty($result->link)) {
-                $msg = 'خطا هنگام ایجاد تراکنش. وضعیت خطا:' . $http_status . "<br>" . 'کد خطا: ' . $result->error_code . ' پیغام خطا ' . $result->error_message;
-                $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                $this->updateAfterEvent($formId, $SubmissionId, $this->otherStatusMessages($result->status));
-                $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
-            }
-
-            $app->redirect($result->link);
         } else {
             $msg = 'مبلغ وارد شده کمتر از ۱۰۰۰۰ ریال می باشد';
-            $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-            $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'Error');
+            $this->redirectTo($app, "index.php?option=com_rsform&formId={$formId}", $msg, 'Error');
         }
     }
 
@@ -173,7 +180,7 @@ class plgSystemRSFPIdpay extends JPlugin
             }
 
             $code = $jinput->get->get('code', '', 'STRING');
-            $db = JFactory::getDBO();
+            $db = JFactory::getContainer()->get('DatabaseDriver');
             $db->setQuery("SELECT SubmissionId FROM #__rsform_submissions s WHERE s.FormId='" . $formId . "' AND MD5(CONCAT(s.SubmissionId,s.DateSubmitted)) = '" . $db->escape($code) . "'");
             $SubmissionId = $db->loadResult();
             $components = RSFormProHelper::componentExists($formId, $this->componentId);
@@ -234,8 +241,8 @@ class plgSystemRSFPIdpay extends JPlugin
                     } else {
 
                         //check double spending
-                        $db = JFactory::getDBO();
-                        $sql = 'SElECT FieldValue FROM ' . "#__rsform_submission_values" . '  WHERE FieldName="idpay_id" AND FormId=' . $formId . ' AND SubmissionId = ' . $SubmissionId;
+                        $db = JFactory::getContainer()->get('DatabaseDriver');
+                        $sql = 'SElECT FieldValue FROM ' . "#__rsform_submission_values" . '  WHERE FieldName="IDPAY_TRANSACTION" AND FormId=' . $formId . ' AND SubmissionId = ' . $SubmissionId;
                         $db->setQuery($sql);
                         $db->execute();
                         $exist = $db->loadObjectList();
@@ -254,12 +261,12 @@ class plgSystemRSFPIdpay extends JPlugin
                         $msgForSaveDataTDataBase = $this->otherStatusMessages($verify_status) . "کد پیگیری :  $verify_track_id " . "شماره کارت :  $card_no " . "شماره کارت رمزنگاری شده : $hashed_card_no ";
                         $this->updateAfterEvent($formId, $SubmissionId, $msgForSaveDataTDataBase);
                         $msg = $this->idpayGetSuccessMessage($verify_track_id, $order_id, $verify_status);
-                       
-                        $app->enqueueMessage(JText::_($msg), 'success');
-                        $app->redirect(JRoute::_("index.php?option=com_rsform&formId={$formId}",false));
 
-                      //  $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
-                      //  $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'success');
+                        $app->enqueueMessage(JText::_($msg), 'success');
+                        $app->redirect(JRoute::_("index.php?option=com_rsform&formId={$formId}", false));
+
+                        //  $link = JURI::root() . 'index.php?option=com_rsform&formId=' . $formId;
+                        //  $app->redirect($link, '<h2>' . $msg . '</h2>', $msgType = 'success');
                     }
 
                 } else {
@@ -286,7 +293,7 @@ class plgSystemRSFPIdpay extends JPlugin
 
     function onRsformBackendAfterShowConfigurationTabs($tabs)
     {
-        $lang = JFactory::getLanguage();
+        $lang = JFactory::getApplication()->getLanguage();
         $lang->load('plg_system_rsfpidpay');
         $tabs->addTitle('IDPAY Gateway', 'form-TRANGELIDPAY');
         $tabs->addContent($this->ConfigurationScreen());
@@ -339,27 +346,9 @@ class plgSystemRSFPIdpay extends JPlugin
         return $contents;
     }
 
-    function getPayerMobile($formId, $SubmissionId)
-    {
-        $db = JFactory::getDbo();
-        $query = $db->getQuery(true);
-        $query->select('FieldValue')
-            ->from($db->qn('#__rsform_submission_values'));
-        $query->where(
-            $db->qn('FormId') . ' = ' . $db->q($formId)
-            . ' AND ' .
-            $db->qn('SubmissionId') . ' = ' . $db->q($SubmissionId)
-            . ' AND ' .
-            $db->qn('FieldName') . ' = ' . $db->q('mobile')
-        );
-        $db->setQuery((string)$query);
-        $result = $db->loadResult();
-        return $result;
-    }
-
     function getPayerPrice($formId, $SubmissionId, $fieldName)
     {
-        $db = JFactory::getDbo();
+        $db = JFactory::getContainer()->get('DatabaseDriver');
         $query = $db->getQuery(true);
         $query->select('FieldValue')
             ->from($db->qn('#__rsform_submission_values'));
@@ -478,7 +467,7 @@ class plgSystemRSFPIdpay extends JPlugin
         if (!$SubmissionId) {
             return false;
         }
-        $db = JFactory::getDBO();
+        $db = JFactory::getContainer()->get('DatabaseDriver');
         $msg = "idpay: $msg";
         $db->setQuery("UPDATE #__rsform_submission_values sv SET sv.FieldValue=1 WHERE sv.FieldName='_STATUS' AND sv.FormId='" . $formId . "' AND sv.SubmissionId = '" . $SubmissionId . "'");
         $db->execute();
