@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<form>
+	<fieldset name="params">
+		<field name="idpay.api" type="text" label="API-KEY" size="100" maxlength="64" />
+		<field name="idpay.sandbox" type="radio" class="btn-group btn-group-yesno" label="Sandbox Mode">
+			<option value="yes">yes</option>
+			<option value="no">no</option>
+		</field>
+		<field name="idpay.currency" type="radio" class="btn-group btn-group-yesno" label="Currency">
+			<option value="RIAL">ریال</option>
+			<option value="IRT">تومان</option>
+		</field>
+		<field name="idpay.success_massage" type="text" label="Success Payment Message" size="100" maxlength="1000" />
+		<field name="idpay.failed_massage" type="text" label="Failed Payment Message" size="100" maxlength="1000" />
+	</fieldset>
+</form>
