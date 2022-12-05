@@ -2,12 +2,13 @@
 /**
  * IDPay payment plugin
  *
- * @developer JMDMahdi, vispa, mnbp1371
+ * @developer MimDeveloper.Tv (Mohammad-Malek),JMDMahdi, vispa, mnbp1371
  * @publisher IDPay
- * @package VirtueMart
- * @subpackage payment
- * @copyright (C) 2020 IDPay
+ * @package RsFormPro
+ * @subpackage system
+ * @copyright (C) 2022 IDPay
  * @license http://www.gnu.org/licenses/gpl-2.0.html GPLv2 or later
+ * @ref http://idpay.ir
  *
  * http://idpay.ir
  */
